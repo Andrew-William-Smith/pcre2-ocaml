@@ -487,6 +487,27 @@ val exec :
 
     @raise Not_found if pattern does not match. *)
 
+val exec_seq :
+  ?iflags : irflag ->
+  ?flags : rflag list ->
+  ?rex : regexp ->
+  ?pat : string ->
+  ?pos : int ->
+  ?callout : callout ->
+  string -> substrings Seq.t
+(** [exec_seq ?iflags ?flags ?rex ?pat ?pos ?callout subj] @return
+    a lazily-evaluated sequence of substring information of all matching
+    substrings in string [subj] starting at position [pos] with pattern [pat]
+    when given, regular expression [rex] otherwise. Uses [flags] when given, the
+    precompiled [iflags] otherwise. Callouts are handled by [callout].
+
+    @param iflags default = no extra flags
+    @param flags default = ignored
+    @param rex default = matches whitespace
+    @param pat default = ignored
+    @param pos default = 0
+    @param callout default = ignore callouts *)
+
 val exec_all :
   ?iflags : irflag ->
   ?flags : rflag list ->
@@ -506,9 +527,7 @@ val exec_all :
     @param rex default = matches whitespace
     @param pat default = ignored
     @param pos default = 0
-    @param callout default = ignore callouts
-
-    @raise Not_found if pattern does not match. *)
+    @param callout default = ignore callouts *)
 
 val next_match :
   ?iflags : irflag ->

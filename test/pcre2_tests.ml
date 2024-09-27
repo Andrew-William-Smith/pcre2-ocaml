@@ -33,9 +33,9 @@ let test_exec_all ctxt =
     assert_equal (List.length expected) (Array.length actual);
     assert_substrings_equal expected @@ Array.to_list actual
   in
-  (* A pattern with no matches should raise Not_found. *)
-  assert_raises Not_found (fun () -> exec_all ~pat:"empty" "");
-  assert_raises Not_found (fun () -> exec_all ~pat:"empty" "empt");
+  (* A pattern with no matches should return an empty array. *)
+  assert_matches ~pat:"empty" "" [];
+  assert_matches ~pat:"empty" "empt" [];
   (* Single matches of non-zero-length patterns. *)
   assert_matches ~pat:"p" "p" [[("p", 0, 1)]];
   assert_matches ~pat:"pattern" "pattern" [[("pattern", 0, 7)]];
