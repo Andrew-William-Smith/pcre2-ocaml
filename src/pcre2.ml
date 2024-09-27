@@ -613,13 +613,21 @@ let extract_opt ?iflags ?flags ?rex ?pat ?pos ?full_match ?callout subj =
   get_opt_substrings
     ?full_match (exec ?iflags ?flags ?rex ?pat ?pos ?callout subj)
 
+let extract_seq ?iflags ?flags ?rex ?pat ?pos ?full_match ?callout subj =
+  Seq.map (get_substrings ?full_match)
+  @@ exec_seq ?iflags ?flags ?rex ?pat ?pos ?callout subj
+
 let extract_all ?iflags ?flags ?rex ?pat ?pos ?full_match ?callout subj =
-  let many_sstrs = exec_all ?iflags ?flags ?rex ?pat ?pos ?callout subj in
-  Array.map (get_substrings ?full_match) many_sstrs
+  Array.map (get_substrings ?full_match)
+  @@ exec_all ?iflags ?flags ?rex ?pat ?pos ?callout subj
+
+let extract_seq_opt ?iflags ?flags ?rex ?pat ?pos ?full_match ?callout subj =
+  Seq.map (get_opt_substrings ?full_match)
+  @@ exec_seq ?iflags ?flags ?rex ?pat ?pos ?callout subj
 
 let extract_all_opt ?iflags ?flags ?rex ?pat ?pos ?full_match ?callout subj =
-  let many_sstrs = exec_all ?iflags ?flags ?rex ?pat ?pos ?callout subj in
-  Array.map (get_opt_substrings ?full_match) many_sstrs
+  Array.map (get_opt_substrings ?full_match)
+  @@ exec_all ?iflags ?flags ?rex ?pat ?pos ?callout subj
 
 let pmatch ?iflags ?flags ?rex ?pat ?pos ?callout subj =
   try ignore (pcre2_match ?iflags ?flags ?rex ?pat ?pos ?callout subj); true

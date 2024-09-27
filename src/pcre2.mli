@@ -612,6 +612,31 @@ val extract_opt :
 
     @raise Not_found if pattern does not match. *)
 
+val extract_seq :
+  ?iflags : irflag ->
+  ?flags : rflag list ->
+  ?rex : regexp ->
+  ?pat : string ->
+  ?pos : int ->
+  ?full_match : bool ->
+  ?callout : callout ->
+  string -> string array Seq.t
+(** [extract_seq ?iflags ?flags ?rex ?pat ?pos ?full_match ?callout subj]
+    @return a lazily-evaluated sequence of arrays of all matching substrings
+    that match [subj] starting at position [pos], using pattern [pat] when
+    given, regular expression [rex] otherwise. Uses [flags] when given, the
+    precompiled [iflags] otherwise. It includes the full match at index 0 of the
+    extracted string arrays when [full_match] is [true], the captured substrings
+    only when it is [false]. Callouts are handled by [callout].
+
+    @param iflags default = no extra flags
+    @param flags default = ignored
+    @param rex default = matches whitespace
+    @param pat default = ignored
+    @param pos default = 0
+    @param full_match default = true
+    @param callout default = ignore callouts *)
+
 val extract_all :
   ?iflags : irflag ->
   ?flags : rflag list ->
@@ -636,9 +661,35 @@ val extract_all :
     @param pat default = ignored
     @param pos default = 0
     @param full_match default = true
-    @param callout default = ignore callouts
+    @param callout default = ignore callouts *)
 
-    @raise Not_found if pattern does not match. *)
+val extract_seq_opt :
+  ?iflags : irflag ->
+  ?flags : rflag list ->
+  ?rex : regexp ->
+  ?pat : string ->
+  ?pos : int ->
+  ?full_match : bool ->
+  ?callout : callout ->
+  string -> string option array Seq.t
+(** [extract_seq_opt
+      ?iflags ?flags ?rex ?pat ?pos ?full_match ?callout subj]
+    @return a lazily-evaluated sequence of arrays of all optional matching
+    substrings that match [subj] starting at position [pos], using pattern [pat]
+    when given, regular expression [rex] otherwise. Uses [flags] when given,
+    the precompiled [iflags] otherwise. It includes [Some full_match_str]
+    at index 0 of the extracted string arrays when [full_match] is [true],
+    [Some captured_substrings] only when it is [false]. Callouts are
+    handled by [callout].  If a subpattern did not capture a substring,
+    [None] is returned in the corresponding position instead.
+
+    @param iflags default = no extra flags
+    @param flags default = ignored
+    @param rex default = matches whitespace
+    @param pat default = ignored
+    @param pos default = 0
+    @param full_match default = true
+    @param callout default = ignore callouts *)
 
 val extract_all_opt :
   ?iflags : irflag ->
@@ -666,9 +717,7 @@ val extract_all_opt :
     @param pat default = ignored
     @param pos default = 0
     @param full_match default = true
-    @param callout default = ignore callouts
-
-    @raise Not_found if pattern does not match. *)
+    @param callout default = ignore callouts *)
 
 val pmatch :
   ?iflags : irflag ->
