@@ -962,7 +962,7 @@ val substitute_first :
 
 (** {6 Splitting} *)
 
-val split :
+val ssplit :
   ?iflags : irflag ->
   ?flags : rflag list ->
   ?rex : regexp ->
@@ -970,7 +970,7 @@ val split :
   ?pos : int ->
   ?max : int ->
   ?callout : callout ->
-  string -> string list
+  string -> string Seq.t
 (** [split ?iflags ?flags ?rex ?pat ?pos ?max ?callout subj] splits [subj]
     into a list of at most [max] strings, using as delimiter pattern
     [pat] when given, regular expression [rex] otherwise, starting at
@@ -988,6 +988,19 @@ val split :
     @param max default = 0
     @param callout default = ignore callouts *)
 
+val split :
+  ?iflags : irflag ->
+  ?flags : rflag list ->
+  ?rex : regexp ->
+  ?pat : string ->
+  ?pos : int ->
+  ?max : int ->
+  ?callout : callout ->
+  string -> string list
+(** [split ?iflags ?flags ?rex ?pat ?pos ?max ?callout subj] is equivalent to
+    {!Pcre2.ssplit} but @return an eagerly-evaluated list rather than a
+    lazily-evaluated sequence. *)
+
 val asplit :
   ?iflags : irflag ->
   ?flags : rflag list ->
@@ -997,8 +1010,9 @@ val asplit :
   ?max : int ->
   ?callout : callout ->
   string -> string array
-(** [asplit ?iflags ?flags ?rex ?pat ?pos ?max ?callout subj] same as
-    {!Pcre2.split} but @return an array instead of a list. *)
+(** [asplit ?iflags ?flags ?rex ?pat ?pos ?max ?callout subj] is equivalent to
+    {!Pcre2.ssplit} but @return an eagerly-evaluated array rather than a
+    lazily-evaluated sequence. *)
 
 (** Result of a {!Pcre2.full_split} *)
 type split_result = Text of string        (** Text part of split string *)
