@@ -487,6 +487,27 @@ val exec :
 
     @raise Not_found if pattern does not match. *)
 
+val exec_seq :
+  ?iflags : irflag ->
+  ?flags : rflag list ->
+  ?rex : regexp ->
+  ?pat : string ->
+  ?pos : int ->
+  ?callout : callout ->
+  string -> substrings Seq.t
+(** [exec_seq ?iflags ?flags ?rex ?pat ?pos ?callout subj] @return
+    a lazily-evaluated sequence of substring information of all matching
+    substrings in string [subj] starting at position [pos] with pattern [pat]
+    when given, regular expression [rex] otherwise. Uses [flags] when given, the
+    precompiled [iflags] otherwise. Callouts are handled by [callout].
+
+    @param iflags default = no extra flags
+    @param flags default = ignored
+    @param rex default = matches whitespace
+    @param pat default = ignored
+    @param pos default = 0
+    @param callout default = ignore callouts *)
+
 val exec_all :
   ?iflags : irflag ->
   ?flags : rflag list ->
@@ -506,9 +527,7 @@ val exec_all :
     @param rex default = matches whitespace
     @param pat default = ignored
     @param pos default = 0
-    @param callout default = ignore callouts
-
-    @raise Not_found if pattern does not match. *)
+    @param callout default = ignore callouts *)
 
 val next_match :
   ?iflags : irflag ->
@@ -593,6 +612,31 @@ val extract_opt :
 
     @raise Not_found if pattern does not match. *)
 
+val extract_seq :
+  ?iflags : irflag ->
+  ?flags : rflag list ->
+  ?rex : regexp ->
+  ?pat : string ->
+  ?pos : int ->
+  ?full_match : bool ->
+  ?callout : callout ->
+  string -> string array Seq.t
+(** [extract_seq ?iflags ?flags ?rex ?pat ?pos ?full_match ?callout subj]
+    @return a lazily-evaluated sequence of arrays of all matching substrings
+    that match [subj] starting at position [pos], using pattern [pat] when
+    given, regular expression [rex] otherwise. Uses [flags] when given, the
+    precompiled [iflags] otherwise. It includes the full match at index 0 of the
+    extracted string arrays when [full_match] is [true], the captured substrings
+    only when it is [false]. Callouts are handled by [callout].
+
+    @param iflags default = no extra flags
+    @param flags default = ignored
+    @param rex default = matches whitespace
+    @param pat default = ignored
+    @param pos default = 0
+    @param full_match default = true
+    @param callout default = ignore callouts *)
+
 val extract_all :
   ?iflags : irflag ->
   ?flags : rflag list ->
@@ -617,9 +661,35 @@ val extract_all :
     @param pat default = ignored
     @param pos default = 0
     @param full_match default = true
-    @param callout default = ignore callouts
+    @param callout default = ignore callouts *)
 
-    @raise Not_found if pattern does not match. *)
+val extract_seq_opt :
+  ?iflags : irflag ->
+  ?flags : rflag list ->
+  ?rex : regexp ->
+  ?pat : string ->
+  ?pos : int ->
+  ?full_match : bool ->
+  ?callout : callout ->
+  string -> string option array Seq.t
+(** [extract_seq_opt
+      ?iflags ?flags ?rex ?pat ?pos ?full_match ?callout subj]
+    @return a lazily-evaluated sequence of arrays of all optional matching
+    substrings that match [subj] starting at position [pos], using pattern [pat]
+    when given, regular expression [rex] otherwise. Uses [flags] when given,
+    the precompiled [iflags] otherwise. It includes [Some full_match_str]
+    at index 0 of the extracted string arrays when [full_match] is [true],
+    [Some captured_substrings] only when it is [false]. Callouts are
+    handled by [callout].  If a subpattern did not capture a substring,
+    [None] is returned in the corresponding position instead.
+
+    @param iflags default = no extra flags
+    @param flags default = ignored
+    @param rex default = matches whitespace
+    @param pat default = ignored
+    @param pos default = 0
+    @param full_match default = true
+    @param callout default = ignore callouts *)
 
 val extract_all_opt :
   ?iflags : irflag ->
@@ -647,9 +717,7 @@ val extract_all_opt :
     @param pat default = ignored
     @param pos default = 0
     @param full_match default = true
-    @param callout default = ignore callouts
-
-    @raise Not_found if pattern does not match. *)
+    @param callout default = ignore callouts *)
 
 val pmatch :
   ?iflags : irflag ->
@@ -894,7 +962,7 @@ val substitute_first :
 
 (** {6 Splitting} *)
 
-val split :
+val ssplit :
   ?iflags : irflag ->
   ?flags : rflag list ->
   ?rex : regexp ->
@@ -902,7 +970,7 @@ val split :
   ?pos : int ->
   ?max : int ->
   ?callout : callout ->
-  string -> string list
+  string -> string Seq.t
 (** [split ?iflags ?flags ?rex ?pat ?pos ?max ?callout subj] splits [subj]
     into a list of at most [max] strings, using as delimiter pattern
     [pat] when given, regular expression [rex] otherwise, starting at
@@ -920,6 +988,19 @@ val split :
     @param max default = 0
     @param callout default = ignore callouts *)
 
+val split :
+  ?iflags : irflag ->
+  ?flags : rflag list ->
+  ?rex : regexp ->
+  ?pat : string ->
+  ?pos : int ->
+  ?max : int ->
+  ?callout : callout ->
+  string -> string list
+(** [split ?iflags ?flags ?rex ?pat ?pos ?max ?callout subj] is equivalent to
+    {!Pcre2.ssplit} but @return an eagerly-evaluated list rather than a
+    lazily-evaluated sequence. *)
+
 val asplit :
   ?iflags : irflag ->
   ?flags : rflag list ->
@@ -929,8 +1010,9 @@ val asplit :
   ?max : int ->
   ?callout : callout ->
   string -> string array
-(** [asplit ?iflags ?flags ?rex ?pat ?pos ?max ?callout subj] same as
-    {!Pcre2.split} but @return an array instead of a list. *)
+(** [asplit ?iflags ?flags ?rex ?pat ?pos ?max ?callout subj] is equivalent to
+    {!Pcre2.ssplit} but @return an eagerly-evaluated array rather than a
+    lazily-evaluated sequence. *)
 
 (** Result of a {!Pcre2.full_split} *)
 type split_result = Text of string        (** Text part of split string *)

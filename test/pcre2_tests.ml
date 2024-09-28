@@ -1,15 +1,57 @@
 open OUnit2
 open Pcre2
 
-let test_full_split ctxt =
-  assert_equal 0 0
-  ; assert_equal [Text "ab"; Delim "x"; Group (1, "x"); NoGroup; Text "cd"]
+let test_split _ =
+  let assert_splits ?(max = -1) ~pat subj expected =
+    let actual = split ~max ~pat subj in
+    assert_equal (List.length expected) (List.length actual);
+    List.iter2 assert_equal expected actual
+  in
+  (* An empty string should split to nothing. *)
+  assert_splits ~pat:"" "" [];
+  assert_splits ~pat:"," "" [];
+  (* Split a string on a single character, allowing an unlimited number of
+     substrings to be returned with no truncation. *)
+  assert_splits ~pat:"," "a" ["a"];
+  assert_splits ~pat:"," "a," ["a"; ""];
+  assert_splits ~pat:"," "a,b" ["a"; "b"];
+  assert_splits ~pat:"," "a,,b" ["a"; ""; "b"];
+  assert_splits ~pat:"," "a,,b,," ["a"; ""; "b"; ""; ""];
+  (* If ~max:0, then trailing empty strings should be stripped. *)
+  assert_splits ~max:0 ~pat:"," "" [];
+  assert_splits ~max:0 ~pat:"," "," [];
+  assert_splits ~max:0 ~pat:"," "a,,b" ["a"; ""; "b"];
+  assert_splits ~max:0 ~pat:"," "a,,b,," ["a"; ""; "b"];
+  (* If a positive ~max match count is specified, then we should stop splitting
+     the string once that count has been reached. Trailing empty strings are not
+     stripped in this mode. *)
+  assert_splits ~max:1 ~pat:"," "a,b,c" ["a,b,c"];
+  assert_splits ~max:2 ~pat:"," "a,b,c" ["a"; "b,c"];
+  assert_splits ~max:3 ~pat:"," "a,b,c" ["a"; "b"; "c"];
+  assert_splits ~max:4 ~pat:"," "a,b,c" ["a"; "b"; "c"];
+  assert_splits ~max:4 ~pat:"," "a,b,c,," ["a"; "b"; "c"; ","];
+  assert_splits ~max:5 ~pat:"," "a,b,c,," ["a"; "b"; "c"; ""; ""];
+  (* Multi-character splits. *)
+  assert_splits ~pat:"<>" "" [];
+  assert_splits ~pat:"<>" "a<" ["a<"];
+  assert_splits ~pat:"<>" "a<>b<>c" ["a"; "b"; "c"];
+  assert_splits ~pat:"<>" "a<><>b<><>c" ["a"; ""; "b"; ""; "c"];
+  assert_splits ~max:0 ~pat:"<>" "a<><>b<><>c<><>" ["a"; ""; "b"; ""; "c"];
+  (* If capture groups are present in the split pattern, we should include them
+     in the output. *)
+  assert_splits ~pat:"([*+])" "" [];
+  assert_splits ~pat:"([*+])" "*" [""; "*"; ""];
+  assert_splits ~pat:"([*+])" "+" [""; "+"; ""];
+  assert_splits ~pat:"([*+])" "m*x+b" ["m"; "*"; "x"; "+"; "b"]
+
+let test_full_split _ =
+  assert_equal [Text "ab"; Delim "x"; Group (1, "x"); NoGroup; Text "cd"]
       (full_split ~pat:"(x)|(u)" "abxcd")
   ; assert_equal [Text "ab"; Delim "x"; Group (1, "x"); NoGroup; Text "cd"; Delim "u";
                   NoGroup; Group (2, "u"); Text "ef"]
       (full_split ~pat:"(x)|(u)" "abxcduef")
 
-let marshalled_string_termination ctxt =
+let marshalled_string_termination _ =
   try
     (* At the time of writing, the longest error message that can be returned by
        PCRE2 is "\g is not followed by a braced, angle-bracketed, or quoted
@@ -25,7 +67,7 @@ let marshalled_string_termination ctxt =
     assert_bool "PCRE2 string contains non-printing character."
       (not @@ String.exists is_non_printing msg)
 
-let test_exec_all ctxt =
+let test_exec_all _ =
   let assert_matches ~pat subj expected =
     let rec assert_match_equal idx expected actual =
       match expected with
@@ -49,9 +91,9 @@ let test_exec_all ctxt =
     assert_equal (List.length expected) (Array.length actual);
     assert_substrings_equal expected @@ Array.to_list actual
   in
-  (* A pattern with no matches should raise Not_found. *)
-  assert_raises Not_found (fun () -> exec_all ~pat:"empty" "");
-  assert_raises Not_found (fun () -> exec_all ~pat:"empty" "empt");
+  (* A pattern with no matches should return an empty array. *)
+  assert_matches ~pat:"empty" "" [];
+  assert_matches ~pat:"empty" "empt" [];
   (* Single matches of non-zero-length patterns. *)
   assert_matches ~pat:"p" "p" [[("p", 0, 1)]];
   assert_matches ~pat:"pattern" "pattern" [[("pattern", 0, 7)]];
@@ -68,12 +110,10 @@ let test_exec_all ctxt =
     [[("", 0, 0); ("hello", 0, 5)]; [("", 4, 4); ("ocaml", 4, 9)]]
 
 let suite = "Test pcre2" >::: [
+      "test_split"                    >:: test_split;
       "test_full_split"               >:: test_full_split;
       "marshalled_string_termination" >:: marshalled_string_termination;
       "test_exec_all"                 >:: test_exec_all;
     ]
 
-let _ =
-if not !Sys.interactive then
-  run_test_tt_main suite
-else ()
+let _ = if not !Sys.interactive then run_test_tt_main suite

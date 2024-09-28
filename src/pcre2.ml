@@ -549,71 +549,62 @@ let next_match ?iflags ?flags ?rex ?pat ?(pos = 0) ?callout (subj, ovector) =
     invalid_arg "Pcre2.next_match: illegal offset";
   subj, pcre2_match ?iflags ?flags ?rex ?pat ~pos ?callout subj
 
-let rec copy_lst ar n = function
-  | [] -> ar
-  | h :: t -> Array.unsafe_set ar n h; copy_lst ar (n - 1) t
-
-let exec_all ?(iflags = 0L) ?flags ?(rex = def_rex) ?pat ?pos ?callout subj =
-  let rex = match pat with Some str -> regexp str | _ -> rex in
-  let iflags = match flags with Some flags -> rflags flags | _ -> iflags in
-  let subj_len = String.length subj in
-  let (_, ovector) = exec ~iflags ~rex ?pos ?callout subj in
+let exec_seq ?(iflags = 0L) ?flags ?(rex = def_rex) ?pat ?pos ?callout subj =
+  let rex = Option.fold ~none:rex ~some:regexp pat in
+  let iflags = Option.fold ~none:iflags ~some:rflags flags in
   let null_flags =
-    List.fold_left Int64.logor Int64.zero
-    [iflags; int_of_rflag `NOTEMPTY_ATSTART; int_of_rflag `ANCHORED]
+    List.fold_left Int64.logor iflags
+    [int_of_rflag `NOTEMPTY_ATSTART; int_of_rflag `ANCHORED]
   in
-  let rec loop pos ovector idx lst =
-    let match_start = Array.unsafe_get ovector 0 in
-    if match_start = pos then
+  let subj_len = String.length subj in
+  let rec next match_start match_end () : substrings Seq.node =
+    if match_start = match_end then
       if match_start = subj_len then
         (* We have reached the end of the subject string, so there are no more
            matches to be found. *)
-        copy_lst (Array.make (succ idx) (subj, ovector)) (pred idx) lst
-      else match_anchored pos ovector idx lst
-    else match_normal pos ovector idx lst
-  and match_normal pos ovector idx lst =
-    let next =
-      try Some (pcre2_match ~iflags ~rex ~pos ?callout subj)
-      with Not_found -> None
-    in
-    match next with
-    | Some ovector' ->
-        loop (Array.unsafe_get ovector' 1) ovector' (succ idx)
-          ((subj, ovector') :: lst)
-    | None -> copy_lst (Array.make idx (subj, ovector)) (pred idx) lst
-  and match_anchored pos ovector idx lst =
-    let pos', ovector', idx', lst' =
-      try
-        (* Try to perform an anchored non-empty match, as the previous match was
-           empty. If this succeeds, we can safely advance past the match. *)
-        let ovector' = pcre2_match ~iflags:null_flags ~rex ~pos ?callout subj in
-        ( Array.unsafe_get ovector' 1, ovector', succ idx
-        , (subj, ovector') :: lst )
-      with Not_found ->
-        (* A Not_found exception here does not necessarily mean that there are
-           no more matches remaining in this string: advance to the beginning of
-           the next UTF-8 character or past the beginning of the newline we
-           currently reference, then continue matching. *)
-        let next_offset =
-          if config_newline_is_crlf then
-            if pos < pred subj_len
-              && Char.equal subj.[pos] '\r'
-              && Char.equal subj.[succ pos] '\n'
-            then 2
-            else 1
-          else if config_unicode then
-            let first_byte = Char.code subj.[pos] in
-            if first_byte land 0b11111000 = 0b11110000 then 4
-            else if first_byte land 0b11110000 = 0b11100000 then 3
-            else if first_byte land 0b11100000 = 0b11000000 then 2
-            else 1
+        Nil
+      else match_anchored match_start match_end
+    else match_normal match_end
+  and match_normal pos : substrings Seq.node =
+    (* The lack of any additional matches here indicates that the subject string
+       has been exhausted, so we can terminate the sequence. *)
+    try next_flags iflags pos
+    with Not_found -> Nil
+  and match_anchored match_start pos : substrings Seq.node =
+    try next_flags null_flags pos 
+    with Not_found ->
+      (* A Not_found exception here does not necessarily mean that there are
+         no more matches remaining in this string: advance to the beginning of
+         the next UTF-8 character or past the beginning of the newline we
+         currently reference, then continue matching. *)
+      let next_offset =
+        if config_newline_is_crlf then
+          if pos < pred subj_len
+            && Char.equal subj.[pos] '\r'
+            && Char.equal subj.[succ pos] '\n'
+          then 2
           else 1
-        in
-        (pos + next_offset, ovector, idx, lst)
-    in
-    loop pos' ovector' idx' lst'
+        else if config_unicode then
+          let first_byte = Char.code subj.[pos] in
+          if first_byte land 0b11111000 = 0b11110000 then 4
+          else if first_byte land 0b11110000 = 0b11100000 then 3
+          else if first_byte land 0b11100000 = 0b11000000 then 2
+          else 1
+        else 1
+      in
+      next match_start (pos + next_offset) ()
+  and next_flags iflags pos : substrings Seq.node =
+    let ovector = pcre2_match ~iflags ~rex ~pos ?callout subj in
+    Cons
+      ( (subj, ovector)
+      , next (Array.unsafe_get ovector 0) (Array.unsafe_get ovector 1) )
   in
-  loop (Array.unsafe_get ovector 1) ovector 1 [(subj, ovector)]
+  fun () ->
+    try next_flags iflags @@ Option.value ~default:0 pos
+    with Not_found -> Seq.Nil
+
+let exec_all ?(iflags = 0L) ?flags ?(rex = def_rex) ?pat ?pos ?callout subj =
+  Array.of_seq @@ exec_seq ~iflags ?flags ~rex ?pat ?pos ?callout subj
 
 let extract ?iflags ?flags ?rex ?pat ?pos ?full_match ?callout subj =
   get_substrings ?full_match (exec ?iflags ?flags ?rex ?pat ?pos ?callout subj)
@@ -622,13 +613,21 @@ let extract_opt ?iflags ?flags ?rex ?pat ?pos ?full_match ?callout subj =
   get_opt_substrings
     ?full_match (exec ?iflags ?flags ?rex ?pat ?pos ?callout subj)
 
+let extract_seq ?iflags ?flags ?rex ?pat ?pos ?full_match ?callout subj =
+  Seq.map (get_substrings ?full_match)
+  @@ exec_seq ?iflags ?flags ?rex ?pat ?pos ?callout subj
+
 let extract_all ?iflags ?flags ?rex ?pat ?pos ?full_match ?callout subj =
-  let many_sstrs = exec_all ?iflags ?flags ?rex ?pat ?pos ?callout subj in
-  Array.map (get_substrings ?full_match) many_sstrs
+  Array.map (get_substrings ?full_match)
+  @@ exec_all ?iflags ?flags ?rex ?pat ?pos ?callout subj
+
+let extract_seq_opt ?iflags ?flags ?rex ?pat ?pos ?full_match ?callout subj =
+  Seq.map (get_opt_substrings ?full_match)
+  @@ exec_seq ?iflags ?flags ?rex ?pat ?pos ?callout subj
 
 let extract_all_opt ?iflags ?flags ?rex ?pat ?pos ?full_match ?callout subj =
-  let many_sstrs = exec_all ?iflags ?flags ?rex ?pat ?pos ?callout subj in
-  Array.map (get_opt_substrings ?full_match) many_sstrs
+  Array.map (get_opt_substrings ?full_match)
+  @@ exec_all ?iflags ?flags ?rex ?pat ?pos ?callout subj
 
 let pmatch ?iflags ?flags ?rex ?pat ?pos ?callout subj =
   try ignore (pcre2_match ?iflags ?flags ?rex ?pat ?pos ?callout subj); true
@@ -977,86 +976,73 @@ let substitute_first ?iflags ?flags ?rex ?pat ?pos
 
 (* Splitting *)
 
-let internal_psplit flags rex max pos callout subj =
+let internal_psplit flags rex max pos callout subj : string Seq.t =
   let subj_len = String.length subj in
-  if subj_len = 0 then []
-  else if max = 1 then [subj]
+  let deferred_nil = Fun.const Seq.Nil in
+  if subj_len = 0 then deferred_nil
+  else if max = 1 then fun () -> Cons (subj, deferred_nil)
   else
-    let subgroups2, ovector = make_ovector rex in
-
-    (* Adds contents of subgroups to the string accumulator *)
-    let handle_subgroups strs =
-      let strs = ref strs in
-      let i = ref 2 in
-      while !i < subgroups2 do
-        let first = Array.unsafe_get ovector !i in
-        incr i;
-        let last = Array.unsafe_get ovector !i in
-        let str =
-          if first < 0 then ""
-          else string_unsafe_sub subj first (last - first) in
-        strs := str :: !strs; incr i
-      done;
-      !strs in
-
-    (* Performs the recursive split *)
-    let rec loop strs cnt pos prematch =
-      let len = subj_len - pos in
-      if len < 0 then strs
-      else
-        (* Checks termination due to max restriction *)
-        if cnt = 0 then
-          if prematch &&
-            try
-              unsafe_pcre2_match
-                flags rex ~pos ~subj_start:pos ~subj ovector callout;
-              true
-            with Not_found -> false
-          then
-            let last = Array.unsafe_get ovector 1 in
-            let strs = handle_subgroups strs in
-            string_unsafe_sub subj last (subj_len - last) :: strs
-          else string_unsafe_sub subj pos len :: strs
-
-        (* Calculates next accumulator state for splitting *)
+    let subgroup_cnt, ovector = make_ovector rex in
+    let null_flags =
+      List.fold_left Int64.logor flags
+      [int_of_rflag `NOTEMPTY; int_of_rflag `ANCHORED]
+    in
+    let has_match flags pos =
+      try
+        unsafe_pcre2_match flags rex ~pos ~subj_start:pos ~subj ovector callout;
+        true
+      with Not_found -> false
+    in
+    let rec handle_subgroups (continuation : string Seq.t) : string Seq.node =
+      let rec loop idx () =
+        if idx >= subgroup_cnt then continuation ()
         else
-          if
-            try
-              unsafe_pcre2_match
-                flags rex ~pos ~subj_start:pos ~subj ovector callout;
-              false
-            with Not_found -> true
-          then string_unsafe_sub subj pos len :: strs
-          else
-            let first = Array.unsafe_get ovector 0 in
-            let last = Array.unsafe_get ovector 1 in
-            if first = pos then
-              if last = pos then
-                let strs = if prematch then handle_subgroups strs else strs in
-                if len = 0 then "" :: strs
-                else if
-                  try
-                    unsafe_pcre2_match
-                      (* `ANCHORED | `NOTEMPTY *)
-                      (Int64.logor flags 0x80000004L) rex ~pos ~subj_start:pos ~subj
-                      ovector callout;
-                    true
-                  with Not_found -> false
-                then
-                  let new_strs = handle_subgroups ("" :: strs) in
-                  loop new_strs (cnt - 1) (Array.unsafe_get ovector 1) false
-                else
-                  let new_strs = string_unsafe_sub subj pos 1 :: strs in
-                  loop new_strs (cnt - 1) (pos + 1) true
-              else
-                if prematch then loop (handle_subgroups strs) cnt last false
-                else loop (handle_subgroups ("" :: strs)) (cnt - 1) last false
+          let first = Array.unsafe_get ovector idx in
+          let last = Array.unsafe_get ovector (succ idx) in
+          let subgroup =
+            if first < 0 then ""
+            else string_unsafe_sub subj first (last - first)
+          in
+          Seq.Cons (subgroup, loop (idx + 2))
+      in
+      loop 2 ()
+    and next pos cnt prematch () : string Seq.node =
+      let remaining_len = subj_len - pos in
+      if remaining_len < 0 then Nil
+      else if cnt = 0 then
+        (* We have reached the maximum permissible split count: return remainder
+           of the subject as a single string. *)
+        if prematch && has_match flags pos then
+          let last = Array.unsafe_get ovector 1 in
+          handle_subgroups @@ fun () ->
+            Cons (string_unsafe_sub subj last (subj_len - last), deferred_nil)
+        else Cons (string_unsafe_sub subj pos remaining_len, deferred_nil)
+      else if not @@ has_match flags pos then
+        Cons (string_unsafe_sub subj pos remaining_len, deferred_nil)
+      else
+        let first = Array.unsafe_get ovector 0 in
+        let last = Array.unsafe_get ovector 1 in
+        if first = pos then
+          if last = pos then
+            if prematch then handle_subgroups @@ next pos cnt false
+            else if remaining_len = 0 then Cons ("", deferred_nil)
+            else if has_match null_flags pos then
+              Cons ("", fun () ->
+                handle_subgroups
+                @@ next (Array.unsafe_get ovector 1) (pred cnt) false)
             else
-              let new_strs = string_unsafe_sub subj pos (first - pos) :: strs in
-              loop (handle_subgroups new_strs) (cnt - 1) last false in
-    loop [] (max - 1) pos false
-
-let rec strip_all_empty = function "" :: t -> strip_all_empty t | l -> l
+              Cons
+                ( string_unsafe_sub subj pos 1
+                , next (succ pos) (pred cnt) true )
+          else if prematch then handle_subgroups @@ next last cnt false
+          else
+            Cons ("", fun () -> handle_subgroups @@ next last (pred cnt) false)
+        else
+          Cons
+            ( string_unsafe_sub subj pos (first - pos)
+            , fun () -> handle_subgroups @@ next last (pred cnt) false )
+    in
+    next pos (pred max) false
 
 external isspace : char -> bool = "pcre2_isspace_stub" [@@noalloc]
 
@@ -1064,22 +1050,49 @@ let rec find_no_space ix len str =
   if ix = len || not (isspace (String.unsafe_get str ix)) then ix
   else find_no_space (ix + 1) len str
 
-let split ?(iflags = 0L) ?flags ?rex ?pat ?(pos = 0) ?(max = 0) ?callout subj =
-  let iflags = match flags with Some flags -> rflags flags | _ -> iflags in
-  let res =
+let ssplit ?(iflags = 0L) ?flags ?rex ?pat ?(pos = 0) ?(max = 0) ?callout subj =
+  let iflags = Option.fold ~none:iflags ~some:rflags flags in
+  let rseq =
     match pat, rex with
     | Some str, _ -> internal_psplit iflags (regexp str) max pos callout subj
     | _, Some rex -> internal_psplit iflags rex max pos callout subj
     | _ ->
-        (* special case for Perl-splitting semantics *)
-        let len = String.length subj in
-        if pos > len || pos < 0 then failwith "Pcre2.split: illegal offset";
-        let new_pos = find_no_space pos len subj in
-        internal_psplit iflags def_rex max new_pos callout subj in
-  List.rev (if max = 0 then strip_all_empty res else res)
+        (* For Perl compatibility, trim leading whitespace. *)
+        let subj_len = String.length subj in
+        if pos < 0 || pos > subj_len then failwith "Pcre2.split: illegal offset";
+        let trimmed_pos = find_no_space pos subj_len subj in
+        internal_psplit iflags def_rex max trimmed_pos callout subj
+  in
+  if max <> 0 then rseq
+  else
+    (* Drop all empty elements at the end of the sequence. *)
+    let rec next empty_remaining ?lookahead (seq : string Seq.t) ()
+        : string Seq.node =
+      if empty_remaining <> 0 then Cons ("", next (pred empty_remaining) seq)
+      else if Option.is_some lookahead then Option.get lookahead
+      else
+        match seq () with
+        | Cons ("", continuation) ->
+            (* Find the next occurrence of a non-empty string, if any. If there
+               are non-empty strings remaining, then we need to return the one
+               that we find in addition to all of the empty strings that precede
+               it; otherwise, we can terminate the sequence. *)
+            find_non_empty continuation
+        | Cons (str, continuation) -> Cons (str, next 0 continuation)
+        | Nil -> Nil
+    and find_non_empty ?(cnt = 1) (seq : string Seq.t) : string Seq.node =
+      match seq () with
+      | Cons ("", continuation) -> find_non_empty ~cnt:(succ cnt) continuation
+      | Cons _ as lookahead -> next ~lookahead cnt seq ()
+      | Nil -> Nil
+    in
+    next 0 rseq
+
+let split ?iflags ?flags ?rex ?pat ?pos ?max ?callout subj =
+  List.of_seq @@ ssplit ?iflags ?flags ?rex ?pat ?pos ?max ?callout subj
 
 let asplit ?iflags ?flags ?rex ?pat ?pos ?max ?callout subj =
-  Array.of_list (split ?iflags ?flags ?rex ?pat ?pos ?max ?callout subj)
+  Array.of_seq @@ ssplit ?iflags ?flags ?rex ?pat ?pos ?max ?callout subj
 
 
 (* Full splitting *)
